@@ -1,0 +1,11 @@
+version=2
+thin=1
+size_mb=auto
+max_size_mb=auto
+sd_reserve_mb=512
+grow_step_mb=256
+watermark_pct=80
+auto_reset_on_drift=1
+auto_snapshot=1
+auto_rollback=1
+rollback_threshold=2

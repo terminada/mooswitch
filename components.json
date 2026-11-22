@@ -1,0 +1,351 @@
+{
+  "format": "mooswitch-components-v1",
+  "components": [
+    {
+      "id": "atmosphere-base",
+      "name": "Atmosphere CFW",
+      "kind": "github_release",
+      "repo": "Atmosphere-NX/Atmosphere",
+      "tag": "1.12.2",
+      "asset_glob": "atmosphere-1.12.2-*.zip",
+      "protected": true,
+      "extract_mode": "zip_tree",
+      "exclude_paths": [
+        "hbmenu.nro",
+        "atmosphere/reboot_payload.bin",
+        "switch/haze.nro",
+        "switch/daybreak.nro",
+        "switch/reboot_to_payload.nro"
+      ],
+      "keep_switch_defaults": false
+    },
+    {
+      "id": "hekate-base",
+      "name": "Hekate & Nyx Support Files",
+      "kind": "github_release",
+      "repo": "CTCaer/hekate",
+      "tag": "v6.5.5",
+      "asset_glob": "hekate_ctcaer_*_Nyx_*.zip",
+      "protected": true,
+      "extract_mode": "zip_selected",
+      "include_paths": [
+        "bootloader/sys/libsys_lp0.bso",
+        "bootloader/sys/libsys_minerva.bso",
+        "bootloader/sys/res.pak",
+        "bootloader/sys/thk.bin",
+        "bootloader/sys/l4t/bpmpfw.bin",
+        "bootloader/sys/l4t/bpmpfw_b01.bin",
+        "bootloader/sys/l4t/mtc_tbl_b01.bin",
+        "bootloader/sys/l4t/sc7entry.bin",
+        "bootloader/sys/l4t/sc7exit.bin",
+        "bootloader/sys/l4t/sc7exit_b01.bin",
+        "bootloader/res/icon_payload.bmp",
+        "bootloader/res/icon_switch.bmp"
+      ]
+    },
+    {
+      "id": "horizon-oc",
+      "name": "Horizon OC (hoc.kip + Patched Exosphere + hoc-clk)",
+      "kind": "github_release",
+      "repo": "Horizon-OC/Horizon-OC",
+      "tag": "2.6.1",
+      "asset_glob": "dist_ext.zip",
+      "protected": true,
+      "extract_mode": "zip_tree",
+      "exclude_paths": [
+        "payload.bin",
+        "bootloader/*",
+        "bootloader/sys/*",
+        "switch/.overlays/Status-Monitor-Overlay.ovl"
+      ],
+      "rename_map": {
+        "switch/Benchmark-Toolbox.nro": "switch/Benchmark-Toolbox/Benchmark-Toolbox.nro"
+      }
+    },
+    {
+      "id": "cowmmc-core",
+      "name": "HOS_COW (cowMMC Core + Bootloader + HOS Tools)",
+      "kind": "local_core",
+      "source_hint": "../HOS_COW/dist/cowmmc-core",
+      "protected": true
+    },
+    {
+      "id": "hats-modchip-tools",
+      "name": "Modchip Boot & Toolbox Payloads (boot.dat + PicoFly/HWFly/Instinct)",
+      "kind": "github_raw_zip",
+      "repo": "sthetix/HATSKit",
+      "tag": "1f68f8d55a7580c09a4dae06afa5ce8a52d57b8d",
+      "raw_path": "skeleton.zip",
+      "protected": true,
+      "extract_mode": "zip_selected",
+      "include_paths": [
+        "boot.dat",
+        "bootloader/payloads/picofly_toolbox_0.2.bin",
+        "bootloader/payloads/hwfly_toolbox.bin",
+        "bootloader/payloads/Instinct-NX_toolbox.bin"
+      ]
+    },
+    {
+      "id": "lockpick-rcm",
+      "name": "Lockpick_RCM (Key Dumper Payload)",
+      "kind": "github_release",
+      "repo": "THZoria/Lockpick_RCMaster",
+      "tag": "2.0.1",
+      "asset_glob": "Lockpick_RCM.bin",
+      "protected": true,
+      "extract_mode": "single_file",
+      "dest_path": "bootloader/payloads/Lockpick_RCM.bin"
+    },
+    {
+      "id": "tegraexplorer",
+      "name": "TegraExplorer (Pre-HOS Explorer & Script Runner)",
+      "kind": "github_release",
+      "repo": "suchmememanyskill/TegraExplorer",
+      "tag": "4.2.0",
+      "asset_glob": "TegraExplorer.bin",
+      "protected": true,
+      "extract_mode": "single_file",
+      "dest_path": "bootloader/payloads/TegraExplorer.bin"
+    },
+    {
+      "id": "common-problem-resolver",
+      "name": "CommonProblemResolver (Pre-HOS Recovery Payload)",
+      "kind": "github_release",
+      "repo": "Team-Neptune/CommonProblemResolver",
+      "tag": "v0.3.5",
+      "asset_glob": "CommonProblemResolver.bin",
+      "protected": true,
+      "extract_mode": "single_file",
+      "dest_path": "bootloader/payloads/CommonProblemResolver.bin"
+    },
+    {
+      "id": "sys-patch",
+      "name": "sys-patch (Dynamic Runtime Sig/System Patches)",
+      "kind": "github_release",
+      "repo": "impeeza/sys-patch",
+      "tag": "v1.6.3.0",
+      "asset_glob": "sys-patch-v1.6.3.0.zip",
+      "protected": true,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
+    },
+    {
+      "id": "saltynx",
+      "name": "SaltyNX (Game Process Hook & Plugin Runtime)",
+      "kind": "github_release",
+      "repo": "masagrator/SaltyNX",
+      "tag": "2.1.4",
+      "asset_glob": "SaltyNX.zip",
+      "protected": true,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
+    },
+    {
+      "id": "mission-control",
+      "name": "MissionControl (Bluetooth Third-Party Controllers)",
+      "kind": "github_release",
+      "repo": "ndeadly/MissionControl",
+      "tag": "v0.16.1",
+      "asset_glob": "MissionControl-0.16.1-*.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
+    },
+    {
+      "id": "sys-con",
+      "name": "sys-con (USB Wired Third-Party Controllers)",
+      "kind": "github_release",
+      "repo": "o0Zz/sys-con",
+      "tag": "2.1.0",
+      "asset_glob": "sys-con-2.1.0.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "exclude_paths": [],
+      "rename_map": {
+        "switch/sys-con.nro": "switch/sys-con/sys-con.nro"
+      }
+    },
+    {
+      "id": "emuiibo",
+      "name": "emuiibo (Virtual Amiibo Emulation - Toggleable)",
+      "kind": "github_release",
+      "repo": "XorTroll/emuiibo",
+      "tag": "1.1.3",
+      "asset_glob": "emuiibo.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "strip_prefix": "SdOut/",
+      "exclude_paths": [
+        "atmosphere/contents/0100000000000352/flags/boot2.flag"
+      ]
+    },
+    {
+      "id": "ldn-mitm",
+      "name": "ldn_mitm (Local Wireless to LAN - Toggleable)",
+      "kind": "github_release",
+      "repo": "spacemeowx2/ldn_mitm",
+      "tag": "v1.25.1",
+      "asset_glob": "ldn_mitm_v1.25.1.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "exclude_paths": [
+        "atmosphere/contents/4200000000000010/flags/boot2.flag"
+      ]
+    },
+    {
+      "id": "nx-ovlloader",
+      "name": "nx-ovlloader (Ultrahand Fork)",
+      "kind": "github_release",
+      "repo": "ppkantorski/nx-ovlloader",
+      "tag": "v2.0.3",
+      "asset_glob": "nx-ovlloader.zip",
+      "protected": true,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
+    },
+    {
+      "id": "ultrahand",
+      "name": "Ultrahand Overlay",
+      "kind": "github_release",
+      "repo": "ppkantorski/Ultrahand-Overlay",
+      "tag": "v2.5.4",
+      "asset_glob": "ovlmenu.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/ovlmenu.ovl"
+    },
+    {
+      "id": "ovl-sysmodules",
+      "name": "ovlSysmodules (Sysmodule Toggle Overlay)",
+      "kind": "github_release",
+      "repo": "ppkantorski/ovl-sysmodules",
+      "tag": "v1.5.3",
+      "asset_glob": "ovlSysmodules.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/ovlSysmodules.ovl"
+    },
+    {
+      "id": "status-monitor-overlay",
+      "name": "Status Monitor Overlay",
+      "kind": "github_release",
+      "repo": "ppkantorski/Status-Monitor-Overlay",
+      "tag": "v1.4.1+r5",
+      "asset_glob": "Status-Monitor-Overlay.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/Status-Monitor-Overlay.ovl"
+    },
+    {
+      "id": "fpslocker",
+      "name": "FPSLocker Overlay",
+      "kind": "github_release",
+      "repo": "masagrator/FPSLocker",
+      "tag": "3.5.1",
+      "asset_glob": "FPSLocker.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/FPSLocker.ovl"
+    },
+    {
+      "id": "reversenx-rt",
+      "name": "ReverseNX-RT Overlay",
+      "kind": "github_release",
+      "repo": "masagrator/ReverseNX-RT",
+      "tag": "2.2.1",
+      "asset_glob": "ReverseNX-RT-ovl.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/ReverseNX-RT-ovl.ovl"
+    },
+    {
+      "id": "quickntp",
+      "name": "QuickNTP Overlay",
+      "kind": "github_release",
+      "repo": "ppkantorski/QuickNTP",
+      "tag": "1.6.0+r6",
+      "asset_glob": "QuickNTP.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/QuickNTP.ovl"
+    },
+    {
+      "id": "edizon-overlay",
+      "name": "EdiZon Overlay",
+      "kind": "github_release",
+      "repo": "proferabg/EdiZon-Overlay",
+      "tag": "v1.0.15",
+      "asset_glob": "ovlEdiZon.ovl",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/.overlays/ovlEdiZon.ovl"
+    },
+    {
+      "id": "alchemist",
+      "name": "Alchemist (Ultrahand Mod/pchtxt Package)",
+      "kind": "github_release",
+      "repo": "ppkantorski/Alchemist",
+      "tag": "v1.0.6",
+      "asset_glob": "Alchemist.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
+    },
+    {
+      "id": "sphaira",
+      "name": "Sphaira (Homebrew Menu Replacement)",
+      "kind": "github_release",
+      "repo": "ITotalJustice/sphaira",
+      "tag": "1.1.1",
+      "asset_glob": "sphaira.zip",
+      "protected": false,
+      "extract_mode": "replace_hbmenu",
+      "hbmenu_path": "hbmenu.nro",
+      "canonical_path": "switch/sphaira/sphaira.nro"
+    },
+    {
+      "id": "jksv",
+      "name": "JKSV (Save Manager)",
+      "kind": "github_release",
+      "repo": "J-D-K/JKSV",
+      "tag": "12/02/2025",
+      "asset_glob": "JKSV.nro",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/JKSV/JKSV.nro"
+    },
+    {
+      "id": "linkalho",
+      "name": "Linkalho (Offline Account Linker, libnx 4.10+)",
+      "kind": "github_release",
+      "repo": "impeeza/linkalho",
+      "tag": "v2.0.2",
+      "asset_glob": "linkalho-v2.0.2.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
+    },
+    {
+      "id": "switch-90dns-tester",
+      "name": "Switch 90DNS Tester",
+      "kind": "github_release",
+      "repo": "meganukebmp/Switch_90DNS_tester",
+      "tag": "v1.1.0",
+      "asset_glob": "Switch_90DNS_tester.nro",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/Switch_90DNS_tester/Switch_90DNS_tester.nro"
+    },
+    {
+      "id": "nxthemes-installer",
+      "name": "NXThemesInstaller",
+      "kind": "github_release",
+      "repo": "exelix11/SwitchThemeInjector",
+      "tag": "nxt-3.0.2",
+      "asset_glob": "NXThemesInstaller.nro",
+      "protected": false,
+      "extract_mode": "single_file",
+      "dest_path": "switch/NXThemesInstaller/NXThemesInstaller.nro"
+    }
+  ]
+}

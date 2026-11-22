@@ -1,0 +1,67 @@
+#REQUIRE SD
+#REQUIRE VER 4.0.0
+
+p = println
+
+clear()
+color(0x00D4B4)
+p("=== MooSwitch Pre-Boot Recovery ===")
+color(0xFFFFFF)
+p("")
+p("This script will safely:")
+p(" 1. Clear custom home themes (0100000000001000 / 0100000000001013)")
+p(" 2. Disable non-core sysmodule boot2.flags")
+p("    (keeps sys-cowguard, nx-ovlloader, and sys-patch enabled)")
+p(" 3. Restore cowMMC SysMem install block flags")
+p("")
+
+res = menu(["Cancel and Exit", "Run MooSwitch Recovery"], 0)
+if (res == 0) {
+    exit()
+}
+
+clear()
+p("1. Clearing custom theme overrides...")
+theme_dirs = [
+    "sd:/atmosphere/contents/0100000000001000",
+    "sd:/atmosphere/contents/0100000000001013"
+]
+theme_dirs.foreach("tdir") {
+    if (fsexists(tdir)) {
+        deldir(tdir)
+        p("   Removed", tdir)
+    }
+}
+
+p("2. Disabling non-core sysmodule boot2.flags...")
+non_core_flags = [
+    "sd:/atmosphere/contents/010000000000bd00/flags/boot2.flag",
+    "sd:/atmosphere/contents/690000000000000D/flags/boot2.flag",
+    "sd:/atmosphere/contents/0100000000000352/flags/boot2.flag",
+    "sd:/atmosphere/contents/4200000000000010/flags/boot2.flag",
+    "sd:/atmosphere/contents/0000000000534C56/flags/boot2.flag",
+    "sd:/atmosphere/contents/00FF0000636C6BFF/flags/boot2.flag"
+]
+non_core_flags.foreach("fpath") {
+    if (fsexists(fpath)) {
+        delfile(fpath)
+        p("   Disabled", fpath)
+    }
+}
+
+p("3. Resetting cowMMC SysMem install guard flags...")
+allow_flag = "sd:/atmosphere/flags/allow_user_content_install.flag"
+if (fsexists(allow_flag)) {
+    delfile(allow_flag)
+    p("   Removed", allow_flag)
+}
+mkdir("sd:/atmosphere")
+mkdir("sd:/atmosphere/flags")
+writefile("sd:/atmosphere/flags/block_user_content_install.flag", ["BYTE[]"])
+p("   Restored sd:/atmosphere/flags/block_user_content_install.flag")
+
+p("")
+color(0x00FF00)
+p("Recovery complete! Press any key to reboot into Hekate.")
+pause()
+payload("sd:/bootloader/update.bin")
