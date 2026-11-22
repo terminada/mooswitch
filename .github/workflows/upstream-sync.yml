@@ -1,0 +1,87 @@
+name: Upstream Component Sync
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      include_core:
+        description: Also bump atmosphere-base, hekate-base, and horizon-oc in components.json
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync-mooswitch
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Check & PR Upstream Component Updates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check upstream releases in components.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INCLUDE_CORE: ${{ inputs.include_core || false }}
+        run: |
+          EXTRA=()
+          if [[ "${INCLUDE_CORE}" == "true" ]]; then
+            EXTRA+=(--include-core)
+          fi
+          python3 -B builder/update_components.py --verify-abi "${EXTRA[@]}" --summary-out /tmp/upstream_summary.md
+          cat /tmp/upstream_summary.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Open or update PR for updated components
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- components.json pack.json; then
+            echo "[*] No component changes to PR."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B chore/upstream-sync
+          git add components.json pack.json
+          git commit -m "chore(components): sync upstream Switch homebrew & overlay releases"
+          git push --force-with-lease origin chore/upstream-sync
+
+          PR_NUM="$(gh pr list --head chore/upstream-sync --base main --state open --json number --jq '.[0].number // ""')"
+          if [[ -n "${PR_NUM}" ]]; then
+            gh pr edit "${PR_NUM}" --body-file /tmp/upstream_summary.md
+          else
+            gh pr create \
+              --head chore/upstream-sync \
+              --base main \
+              --title "chore(components): sync upstream releases ($(date -u +%Y.%m.%d))" \
+              --body-file /tmp/upstream_summary.md
+          fi
+
+      - name: Flag upstream core updates in tracking issue
+        if: ${{ !inputs.include_core }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! grep -q "^### Core Updates" /tmp/upstream_summary.md; then
+            exit 0
+          fi
+          TITLE="Upstream core update available (Atmosphere / Hekate / Horizon-OC)"
+          ISSUE_NUM="$(gh issue list --state open --search "in:title \"${TITLE}\"" --json number,title --jq ".[] | select(.title == \"${TITLE}\") | .number" | head -n 1 || true)"
+          if [[ -n "${ISSUE_NUM}" ]]; then
+            gh issue edit "${ISSUE_NUM}" --body-file /tmp/upstream_summary.md
+          else
+            gh issue create --title "${TITLE}" --body-file /tmp/upstream_summary.md
+          fi

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Scripts, Configs & Bootlogo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install font & Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core
+          pip install -r requirements.txt
+
+      - name: Validate Python syntax, manifests, configs, and minimal B&W bootlogo
+        run: |
+          python3 -m py_compile \
+            branding/generate_branding.py \
+            builder/abi_check.py \
+            builder/build_pack.py \
+            builder/install_pack.py \
+            builder/update_components.py \
+            builder/verify_pack.py
+
+          python3 - << 'PYEOF'
+          import json
+          from pathlib import Path
+
+          pack = json.loads(Path("pack.json").read_text(encoding="utf-8"))
+          assert pack.get("pack_name") == "mooswitch"
+          assert pack.get("version")
+          assert pack.get("branding", {}).get("bootlogo_style") == "minimal-bw"
+          assert pack.get("branding", {}).get("ui_themes") == "default"
+
+          comps = json.loads(Path("components.json").read_text(encoding="utf-8"))
+          ids = [c["id"] for c in comps.get("components", [])]
+          assert len(ids) == len(set(ids)) and "cowmmc-core" in ids and "sphaira" in ids
+
+          autoinit = Path("sd_overlay/emuMMC/COW0/cow_autoinit").read_text(encoding="utf-8")
+          for req in ("version=2", "thin=1", "size_mb=auto", "sd_reserve_mb=512"):
+              assert req in autoinit, f"Missing {req} in cow_autoinit"
+
+          hekate = Path("sd_overlay/bootloader/hekate_ipl.ini").read_text(encoding="utf-8")
+          assert "[CFW (cowMMC)]" in hekate and "[CFW (sysMMC)]" not in hekate
+          assert "icon=" not in hekate
+          nyx = Path("sd_overlay/bootloader/nyx.ini").read_text(encoding="utf-8")
+          assert "themebg=2d2d2d" in nyx and "themecolor=167" in nyx
+          sphaira = Path("sd_overlay/config/sphaira/config.ini").read_text(encoding="utf-8")
+          assert not any(l.strip().startswith("theme=") for l in sphaira.splitlines())
+          PYEOF
+
+          rm -rf /tmp/branding_check
+          python3 -B branding/generate_branding.py --sd-root /tmp/branding_check
+          python3 -B -c "from pathlib import Path; from builder.verify_pack import verify_bmp32; verify_bmp32(Path('/tmp/branding_check/bootloader/bootlogo.bmp'), 720, 1280, require_opaque=True, require_grayscale=True)"

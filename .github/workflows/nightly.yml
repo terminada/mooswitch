@@ -1,0 +1,206 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force nightly build even if nothing changed today
+        type: boolean
+        required: false
+        default: false
+      hos_cow_tag:
+        description: Optional HOS_COW release tag override
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-mooswitch
+  cancel-in-progress: false
+
+jobs:
+  check-changes:
+    name: Check for New Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.chk.outputs.should_build }}
+      tag: ${{ steps.chk.outputs.tag }}
+      reason: ${{ steps.chk.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check mooswitch HEAD and HOS_COW nightly since last nightly
+        id: chk
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOS_TOKEN: ${{ secrets.HOS_COW_TOKEN || github.token }}
+          FORCE: ${{ inputs.force || false }}
+          EXPLICIT_HOS_TAG: ${{ inputs.hos_cow_tag || '' }}
+        run: |
+          set -euo pipefail
+          TAG="nightly-$(date -u +%Y.%m.%d)"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+          if [[ "${FORCE}" == "true" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            echo "reason=manual force=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          LAST_MOO_TAG="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 25 --json tagName,isDraft,publishedAt \
+            --jq '[.[] | select((.isDraft | not) and (.tagName | startswith("nightly-")))] | sort_by(.publishedAt) | reverse | .[0].tagName // ""' 2>/dev/null || true)"
+
+          if [[ -z "${LAST_MOO_TAG}" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            echo "reason=no prior mooswitch nightly release" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          PREV_DIR="$(mktemp -d)"
+          trap 'rm -rf "${PREV_DIR}"' EXIT
+
+          # Check if mooswitch has non-doc commits since last nightly tag commit
+          LAST_MOO_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${LAST_MOO_TAG}" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ -z "${LAST_MOO_SHA}" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            echo "reason=could not resolve ${LAST_MOO_TAG} commit" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          MOO_CHANGED="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${LAST_MOO_SHA}...${GITHUB_SHA}" \
+            --jq '[.files[]?.filename | select((endswith(".md") or startswith("docs/")) | not)] | length' 2>/dev/null || echo "1")"
+          if [[ "${MOO_CHANGED}" != "0" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            echo "reason=${MOO_CHANGED} mooswitch file(s) changed since ${LAST_MOO_TAG}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # Check if HOS_COW has a newer core commit than the previous nightly's pack-manifest.json
+          USED_HOS_SHA=""
+          if gh release download "${LAST_MOO_TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "pack-manifest.json" --dir "${PREV_DIR}" 2>/dev/null; then
+            USED_HOS_SHA="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(m.get("cowmmc_core",{}).get("hos_cow_commit") or "")' "${PREV_DIR}/pack-manifest.json")"
+          fi
+
+          TARGET_HOS_TAG="${EXPLICIT_HOS_TAG}"
+          if [[ -z "${TARGET_HOS_TAG}" ]]; then
+            TARGET_HOS_TAG="$(GH_TOKEN="${HOS_TOKEN}" gh release list --repo terminada/HOS_COW --limit 30 --json tagName,isDraft,isPrerelease,publishedAt \
+              --jq '[.[] | select(.isDraft | not)] | sort_by(.publishedAt) | reverse | ([.[] | select(.tagName | startswith("nightly-"))][0].tagName // .[0].tagName // "")' 2>/dev/null || true)"
+          fi
+
+          LATEST_HOS_SHA=""
+          if [[ -n "${TARGET_HOS_TAG}" ]] && GH_TOKEN="${HOS_TOKEN}" gh release download "${TARGET_HOS_TAG}" --repo terminada/HOS_COW --pattern "cowmmc-core-manifest.json" --dir "${PREV_DIR}" 2>/dev/null; then
+            LATEST_HOS_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("hos_cow_commit") or "")' "${PREV_DIR}/cowmmc-core-manifest.json")"
+          else
+            LATEST_HOS_SHA="$(GH_TOKEN="${HOS_TOKEN}" gh api repos/terminada/HOS_COW/commits/main --jq .sha 2>/dev/null || true)"
+          fi
+
+          if [[ -n "${LATEST_HOS_SHA}" && "${LATEST_HOS_SHA}" != "${USED_HOS_SHA}" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            echo "reason=new HOS_COW core (${LATEST_HOS_SHA:0:12} != ${USED_HOS_SHA:0:12})" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "should_build=false" >> "${GITHUB_OUTPUT}"
+          echo "reason=no mooswitch or HOS_COW changes since ${LAST_MOO_TAG}" >> "${GITHUB_OUTPUT}"
+
+  nightly-build:
+    name: Build & Publish Nightly
+    needs: check-changes
+    if: needs.check-changes.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install font & Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core
+          pip install -r requirements.txt
+
+      - name: Grab latest HOS_COW nightly cowmmc-core
+        id: core
+        uses: ./.github/actions/fetch-cowmmc-core
+        with:
+          token: ${{ secrets.HOS_COW_TOKEN || github.token }}
+          cowmmc_core_tag: ${{ inputs.hos_cow_tag || '' }}
+          preference: nightly
+          output_path: /tmp/cowmmc-core.tar.gz
+
+      - name: Cache upstream release assets
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ${{ runner.os }}-mooswitch-assets-${{ hashFiles('components.json') }}
+          restore-keys: |
+            ${{ runner.os }}-mooswitch-assets-
+
+      - name: Build & verify MooSwitch nightly archive
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.check-changes.outputs.tag }}
+          CORE_TAG: ${{ steps.core.outputs.core_tag }}
+          REASON: ${{ needs.check-changes.outputs.reason }}
+        run: |
+          python3 -B builder/build_pack.py --version "${TAG}" --cowmmc-core /tmp/cowmmc-core.tar.gz
+          python3 -B builder/verify_pack.py --sd-root dist/sd_root --zip "dist/mooswitch-${TAG}.zip"
+          (cd dist && sha256sum "mooswitch-${TAG}.zip" > "mooswitch-${TAG}.zip.sha256")
+
+          python3 - << 'PYEOF' > /tmp/nightly_notes.md
+          import json, os
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          m = json.loads(Path("dist/sd_root/pack-manifest.json").read_text(encoding="utf-8"))
+          sha = Path(f"dist/mooswitch-{tag}.zip.sha256").read_text(encoding="utf-8").split()[0]
+          core = m.get("cowmmc_core", {})
+
+          print(f"## MooSwitch `{tag}` (Nightly)")
+          print()
+          print(f"> Trigger reason: {os.environ.get('REASON', 'scheduled')}")
+          print()
+          print(f"- **cowmmc-core source:** `{os.environ.get('CORE_TAG', 'nightly')}` (`HOS_COW@{str(core.get('hos_cow_commit', ''))[:12]}`, `hekatomb@{str(core.get('hekate_commit', ''))[:12]}`, `AtmosphereCOW@{str(core.get('atmosphere_commit', ''))[:12]}`)")
+          print(f"- **Supported HOS:** `{m['supported_hos']}`  |  **Atmosphere:** `{m['atmosphere_version']}`  |  **Hekate:** `{m['hekate_version']}`")
+          print(f"- **Tracked SD files:** `{m['file_count']}`")
+          print(f"- **ZIP SHA-256:** `{sha}`")
+          PYEOF
+
+      - name: Publish nightly pre-release & prune older nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check-changes.outputs.tag }}
+        run: |
+          ASSETS=(
+            "dist/mooswitch-${TAG}.zip"
+            "dist/mooswitch-${TAG}.zip.sha256"
+            "dist/sd_root/pack-manifest.json"
+            "dist/lock-checksums.json"
+          )
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+            gh release edit "${TAG}" --title "MooSwitch ${TAG}" --notes-file /tmp/nightly_notes.md --prerelease=true
+          else
+            gh release create "${TAG}" "${ASSETS[@]}" \
+              --target "${GITHUB_SHA}" \
+              --title "MooSwitch ${TAG}" \
+              --notes-file /tmp/nightly_notes.md \
+              --prerelease=true
+          fi
+
+          # Retain latest 7 nightly releases
+          OLD_NIGHTLIES="$(gh release list --limit 40 --json tagName,isDraft,publishedAt \
+            --jq '[.[] | select((.isDraft | not) and (.tagName | startswith("nightly-")))] | sort_by(.publishedAt) | reverse | .[7:][].tagName' || true)"
+          for old_tag in ${OLD_NIGHTLIES}; do
+            gh release delete "${old_tag}" --yes --cleanup-tag || true
+          done

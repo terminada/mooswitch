@@ -1,0 +1,176 @@
+name: Fetch cowmmc-core
+description: Downloads cowmmc-core.tar.gz from terminada/HOS_COW releases (nightly or best) or builds from source as fallback.
+
+inputs:
+  token:
+    description: GitHub token with read access to terminada/HOS_COW
+    required: false
+    default: ""
+  hos_cow_repo:
+    description: Source HOS_COW repository
+    required: false
+    default: terminada/HOS_COW
+  cowmmc_core_tag:
+    description: Explicit HOS_COW release tag to download (overrides preference)
+    required: false
+    default: ""
+  preference:
+    description: Release selection strategy when cowmmc_core_tag is empty (best or nightly)
+    required: false
+    default: best
+  hos_cow_ref:
+    description: HOS_COW branch/tag/SHA to build from if no matching release asset exists
+    required: false
+    default: main
+  output_path:
+    description: Destination path for cowmmc-core.tar.gz
+    required: false
+    default: /tmp/cowmmc-core.tar.gz
+
+outputs:
+  core_tag:
+    description: Selected HOS_COW release tag (or source ref)
+    value: ${{ steps.download.outputs.core_tag }}
+  hos_cow_commit:
+    description: Embedded HOS_COW commit SHA inside cowmmc-core-manifest.json
+    value: ${{ steps.meta.outputs.hos_cow_commit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Select and download cowmmc-core release asset
+      id: download
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token || github.token }}
+        HOS_COW_REPO: ${{ inputs.hos_cow_repo }}
+        EXPLICIT_TAG: ${{ inputs.cowmmc_core_tag }}
+        PREF: ${{ inputs.preference }}
+        OUT_PATH: ${{ inputs.output_path }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "${OUT_PATH}")"
+        TMP_DL="$(mktemp -d)"
+        trap 'rm -rf "${TMP_DL}"' EXIT
+
+        SELECTED_TAG="${EXPLICIT_TAG}"
+        if [[ -z "${SELECTED_TAG}" ]]; then
+          REL_JSON="$(gh release list --repo "${HOS_COW_REPO}" --limit 40 --json tagName,isDraft,isPrerelease,publishedAt 2>/dev/null || echo '[]')"
+          SELECTED_TAG="$(python3 - "${PREF}" "${REL_JSON}" << 'PYEOF'
+        import json, sys
+
+        pref, raw = sys.argv[1], sys.argv[2]
+        rels = [r for r in json.loads(raw or "[]") if not r.get("isDraft")]
+        if not rels:
+            print("")
+            raise SystemExit(0)
+
+        rels.sort(key=lambda r: r.get("publishedAt") or "", reverse=True)
+        nightlies = [r for r in rels if r["tagName"].startswith("nightly-") or r.get("isPrerelease")]
+        stables = [r for r in rels if not r.get("isPrerelease") and not r["tagName"].startswith("nightly-")]
+
+        if pref == "nightly":
+            chosen = nightlies[0] if nightlies else rels[0]
+        else:
+            if stables and nightlies:
+                chosen = stables[0] if (stables[0].get("publishedAt", "") >= nightlies[0].get("publishedAt", "")) else nightlies[0]
+            elif stables:
+                chosen = stables[0]
+            else:
+                chosen = rels[0]
+        print(chosen["tagName"])
+        PYEOF
+        )"
+        fi
+
+        if [[ -n "${SELECTED_TAG}" ]] && gh release download "${SELECTED_TAG}" \
+            --repo "${HOS_COW_REPO}" \
+            --pattern "cowmmc-core.tar.gz*" \
+            --dir "${TMP_DL}" 2>/dev/null; then
+          if [[ -f "${TMP_DL}/cowmmc-core.tar.gz" ]]; then
+            if [[ -f "${TMP_DL}/cowmmc-core.tar.gz.sha256" ]]; then
+              (cd "${TMP_DL}" && sha256sum -c cowmmc-core.tar.gz.sha256)
+            fi
+            mv "${TMP_DL}/cowmmc-core.tar.gz" "${OUT_PATH}"
+            echo "[+] Downloaded cowmmc-core.tar.gz from ${HOS_COW_REPO}@${SELECTED_TAG}"
+            echo "found=true" >> "${GITHUB_OUTPUT}"
+            echo "core_tag=${SELECTED_TAG}" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+        fi
+
+        echo "[*] No cowmmc-core release asset found in ${HOS_COW_REPO}; falling back to source build (${{ inputs.hos_cow_ref }})."
+        echo "found=false" >> "${GITHUB_OUTPUT}"
+        echo "core_tag=source:${{ inputs.hos_cow_ref }}" >> "${GITHUB_OUTPUT}"
+
+    - name: Checkout HOS_COW fallback source
+      if: steps.download.outputs.found != 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.hos_cow_repo }}
+        ref: ${{ inputs.hos_cow_ref }}
+        token: ${{ inputs.token || github.token }}
+        submodules: recursive
+        path: .hos_cow_src
+
+    - name: Install Linux ARM build dependencies
+      if: steps.download.outputs.found != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          gcc-arm-none-eabi \
+          binutils-arm-none-eabi \
+          clang \
+          lld
+
+    - name: Cache HOS_COW Switch toolchain
+      if: steps.download.outputs.found != 'true'
+      uses: actions/cache@v4
+      with:
+        path: .hos_cow_src/.toolchain
+        key: ${{ runner.os }}-cowmmc-toolchain-${{ hashFiles('.hos_cow_src/tools/setup_switch_toolchain.sh') }}
+
+    - name: Build and export cowmmc-core from source
+      if: steps.download.outputs.found != 'true'
+      shell: bash
+      env:
+        OUT_PATH: ${{ inputs.output_path }}
+      run: |
+        set -euo pipefail
+        SRC_DIR="${GITHUB_WORKSPACE}/.hos_cow_src"
+        bash "${SRC_DIR}/tools/setup_switch_toolchain.sh"
+        bash "${SRC_DIR}/tools/build_emummc_linux.sh"
+        bash "${SRC_DIR}/tools/build_hekate_linux.sh"
+
+        DEVKITPRO="${SRC_DIR}/.toolchain/devkitpro" \
+          PATH="${SRC_DIR}/.toolchain/devkitpro/devkitA64/bin:${SRC_DIR}/.toolchain/devkitpro/tools/bin:${PATH}" \
+          make -C "${SRC_DIR}/repos/Atmosphere/stratosphere/ams_mitm" -j"$(nproc)"
+        cp "${SRC_DIR}/repos/Atmosphere/stratosphere/ams_mitm/out/nintendo_nx_arm64_armv8a/release/ams_mitm.kip" \
+          "${SRC_DIR}/dist/ams_mitm.kip"
+
+        bash "${SRC_DIR}/tools/build_switch_hos_tools.sh"
+        python3 -B "${SRC_DIR}/tools/verify_emummc_binaries.py"
+        bash "${SRC_DIR}/tools/export_cowmmc_core.sh"
+        cp "${SRC_DIR}/dist/cowmmc-core.tar.gz" "${OUT_PATH}"
+
+    - name: Read cowmmc-core manifest metadata
+      id: meta
+      shell: bash
+      env:
+        OUT_PATH: ${{ inputs.output_path }}
+      run: |
+        set -euo pipefail
+        HOS_COMMIT="$(python3 - "${OUT_PATH}" << 'PYEOF'
+        import json, sys, tarfile
+
+        with tarfile.open(sys.argv[1], "r:gz") as tf:
+            for member in tf.getmembers():
+                if member.name.lstrip("./") == "cowmmc-core-manifest.json":
+                    m = json.load(tf.extractfile(member))
+                    print(m.get("hos_cow_commit", ""))
+                    break
+        PYEOF
+        )"
+        echo "hos_cow_commit=${HOS_COMMIT}" >> "${GITHUB_OUTPUT}"

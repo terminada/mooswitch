@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "20*"
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Date release tag (defaults to UTC YYYY.MM.DD)
+        required: false
+        default: ""
+      cowmmc_core_tag:
+        description: Optional HOS_COW release tag override (defaults to best available)
+        required: false
+        default: ""
+      prerelease:
+        description: Mark GitHub Release as a pre-release
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, Verify & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install font & Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-liberation fonts-dejavu-core
+          pip install -r requirements.txt
+
+      - name: Determine release tag & version
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag || '' }}
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            TAG="${INPUT_TAG}"
+          else
+            TAG="$(date -u +%Y.%m.%d)"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Grab best available HOS_COW cowmmc-core
+        id: core
+        uses: ./.github/actions/fetch-cowmmc-core
+        with:
+          token: ${{ secrets.HOS_COW_TOKEN || github.token }}
+          cowmmc_core_tag: ${{ inputs.cowmmc_core_tag || '' }}
+          preference: best
+          output_path: /tmp/cowmmc-core.tar.gz
+
+      - name: Cache upstream release assets
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ${{ runner.os }}-mooswitch-assets-${{ hashFiles('components.json') }}
+          restore-keys: |
+            ${{ runner.os }}-mooswitch-assets-
+
+      - name: Build & verify MooSwitch release archive
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          CORE_TAG: ${{ steps.core.outputs.core_tag }}
+        run: |
+          python3 -B builder/build_pack.py --version "${VERSION}" --cowmmc-core /tmp/cowmmc-core.tar.gz
+          python3 -B builder/verify_pack.py --sd-root dist/sd_root --zip "dist/mooswitch-${VERSION}.zip"
+          (cd dist && sha256sum "mooswitch-${VERSION}.zip" > "mooswitch-${VERSION}.zip.sha256")
+
+          python3 - << 'PYEOF' > /tmp/release_notes.md
+          import json, os
+          from pathlib import Path
+
+          m = json.loads(Path("dist/sd_root/pack-manifest.json").read_text(encoding="utf-8"))
+          sha = Path(f"dist/mooswitch-{m['version']}.zip.sha256").read_text(encoding="utf-8").split()[0]
+          core = m.get("cowmmc_core", {})
+
+          print(f"## MooSwitch {os.environ['TAG']}")
+          print()
+          print(
+              f"- **Supported HOS:** `{m['supported_hos']}`  |  "
+              f"**Atmosphere:** `{m['atmosphere_version']}`  |  "
+              f"**Hekate:** `{m['hekate_version']}`"
+          )
+          print(
+              f"- **cowmmc-core:** `{os.environ.get('CORE_TAG', 'best')}` "
+              f"(`HOS_COW@{str(core.get('hos_cow_commit', ''))[:12]}`, "
+              f"`hekatomb@{str(core.get('hekate_commit', ''))[:12]}`, "
+              f"`AtmosphereCOW@{str(core.get('atmosphere_commit', ''))[:12]}`)"
+          )
+          print(f"- **Tracked SD files:** `{m['file_count']}`")
+          print(f"- **ZIP SHA-256:** `{sha}`")
+          print()
+          print("<details>")
+          print("<summary>Component Versions</summary>")
+          print()
+          print("| Component | Version | Asset |")
+          print("| :--- | :--- | :--- |")
+          for cid, info in sorted(m["components"].items()):
+              print(f"| `{cid}` | `{info.get('version', '')}` | `{info.get('asset', info.get('source', ''))}` |")
+          print()
+          print("</details>")
+          PYEOF
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease || false }}
+        run: |
+          ASSETS=(
+            "dist/mooswitch-${VERSION}.zip"
+            "dist/mooswitch-${VERSION}.zip.sha256"
+            "dist/sd_root/pack-manifest.json"
+            "dist/lock-checksums.json"
+          )
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+            gh release edit "${TAG}" --title "MooSwitch ${TAG}" --notes-file /tmp/release_notes.md "--prerelease=${PRERELEASE}"
+          else
+            gh release create "${TAG}" "${ASSETS[@]}" \
+              --target "${GITHUB_SHA}" \
+              --title "MooSwitch ${TAG}" \
+              --notes-file /tmp/release_notes.md \
+              "--prerelease=${PRERELEASE}"
+          fi
