@@ -306,8 +306,8 @@ def verify_configs_and_packages(sd_root: Path) -> None:
     assert gh_cfg.get("tag") == "latest", f"Sphaira GitHub updater must track stable releases ('latest'), got {gh_cfg.get('tag')!r}"
     assets = gh_cfg.get("assets", [])
     assert len(assets) == 2, f"Expected 2 asset filters in mooswitch.json, found {len(assets)}"
-    assert assets[0].get("name") == "-update.zip" and assets[0].get("path") == "/"
-    assert assets[1].get("name") == ".zip" and assets[1].get("path") == "/"
+    assert assets[0].get("name") == "-update.zip" and assets[0].get("path") == "/config/mooswitch/staging"
+    assert assets[1].get("name") == ".zip" and assets[1].get("path") == "/config/mooswitch/staging"
     for idx, asset in enumerate(assets):
         assert asset.get("pre_install_message", "").strip(), f"mooswitch.json assets[{idx}] missing pre_install_message"
         assert asset.get("post_install_message", "").strip(), f"mooswitch.json assets[{idx}] missing post_install_message"
@@ -430,7 +430,11 @@ def verify_manifest_and_zip(sd_root: Path, zip_path: Path | None) -> int:
         with zipfile.ZipFile(zip_path, "r") as zf:
             bad = zf.testzip()
             assert bad is None, f"Corrupt member in ZIP archive: {bad}"
-            zip_members = set(zf.namelist())
+            names = zf.namelist()
+            assert names and names[-1] == "pack-manifest.json", (
+                f"Full ZIP must write pack-manifest.json last, got {names[-1] if names else None!r}"
+            )
+            zip_members = set(names)
             expected_all = disk_files | {"pack-manifest.json"}
             assert zip_members == expected_all, (
                 f"ZIP/SD mismatch: extra={sorted(zip_members - expected_all)}, "
@@ -462,7 +466,11 @@ def verify_update_zip(sd_root: Path, update_zip_path: Path) -> tuple[int, int]:
     with zipfile.ZipFile(update_zip_path, "r") as zf:
         bad = zf.testzip()
         assert bad is None, f"Corrupt member in Update ZIP archive: {bad}"
-        zip_members = set(zf.namelist())
+        names = zf.namelist()
+        assert names and names[-1] == "pack-manifest.json", (
+            f"Update ZIP must write pack-manifest.json last, got {names[-1] if names else None!r}"
+        )
+        zip_members = set(names)
         expected_members = expected_included | {"pack-manifest.json"}
         assert zip_members == expected_members, (
             f"Update ZIP mismatch: extra={sorted(zip_members - expected_members)}, "

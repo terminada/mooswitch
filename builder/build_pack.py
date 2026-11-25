@@ -80,7 +80,7 @@ def _write_sd_zip(
                 if not p.is_file():
                     continue
                 rel = p.relative_to(sd_dir).as_posix()
-                if manifest_override is not None and rel == "pack-manifest.json":
+                if rel == "pack-manifest.json":
                     continue
                 if exclude_fn is not None and exclude_fn(rel):
                     continue
@@ -90,6 +90,12 @@ def _write_sd_zip(
                     zf,
                     "pack-manifest.json",
                     (json.dumps(manifest_override, indent=2) + "\n").encode("utf-8"),
+                )
+            elif (sd_dir / "pack-manifest.json").is_file():
+                _add_entry(
+                    zf,
+                    "pack-manifest.json",
+                    (sd_dir / "pack-manifest.json").read_bytes(),
                 )
         zip_tmp.replace(zip_path)
     finally:

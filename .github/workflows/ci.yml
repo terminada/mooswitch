@@ -73,7 +73,7 @@ jobs:
           assert gh_upd.get("tag") == "latest"
           gh_assets = gh_upd.get("assets", [])
           assert [a.get("name") for a in gh_assets] == ["-update.zip", ".zip"]
-          assert all(a.get("path") == "/" for a in gh_assets)
+          assert all(a.get("path") == "/config/mooswitch/staging" for a in gh_assets)
           assert all(a.get("pre_install_message", "").strip() and a.get("post_install_message", "").strip() for a in gh_assets)
           def _match_asset(fname):
               return next((a["name"] for a in gh_assets if a["name"] in fname), None)

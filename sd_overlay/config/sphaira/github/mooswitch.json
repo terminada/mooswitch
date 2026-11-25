@@ -5,15 +5,15 @@
   "assets": [
     {
       "name": "-update.zip",
-      "path": "/",
-      "pre_install_message": "Install MooSwitch Update Pack?\n\nUpdates CFW, patches, overlays, and homebrew while preserving your configs, sysmodule toggles, and cowMMC setup.\n\nIf updating Switch firmware, quarantine custom Home Menu themes first (Ultrahand -> MooSwitch Tools).",
-      "post_install_message": "MooSwitch Update Pack installed.\n\nReboot your Switch immediately (Sphaira Power Menu or Ultrahand -> Reboot to Hekate / Nyx) to apply the update."
+      "path": "/config/mooswitch/staging",
+      "pre_install_message": "Stage MooSwitch Update Pack to /config/mooswitch/staging?\n\nUpdates CFW, patches, overlays, and homebrew while preserving your configs, sysmodule toggles, and cowMMC setup.\n\nIf you customized Horizon OC on hoc.kip, re-apply your OC profile after updating. If updating Switch firmware, quarantine custom Home Menu themes first (Ultrahand -> MooSwitch Tools).",
+      "post_install_message": "MooSwitch Update Pack staged.\n\nReboot your Switch immediately (Sphaira Power Menu or Ultrahand -> Reboot to Hekate / Nyx). Hekate will apply the update automatically on boot."
     },
     {
       "name": ".zip",
-      "path": "/",
-      "pre_install_message": "Install MooSwitch Full Pack?\n\nWARNING: Overwrites your configs (Hekate, Nyx, Atmosphere, Sphaira, Ultrahand, sys-con, cowMMC guard) and resets default sysmodule boot toggles.\n\nSelect the -update.zip asset instead to preserve your settings.",
-      "post_install_message": "MooSwitch Full Pack installed.\n\nReboot your Switch immediately (Sphaira Power Menu or Ultrahand -> Reboot to Hekate / Nyx) to apply the update."
+      "path": "/config/mooswitch/staging",
+      "pre_install_message": "Stage MooSwitch Full Pack to /config/mooswitch/staging?\n\nWARNING: On next boot, Hekate will apply the Full Pack and overwrite your configs (Hekate, Nyx, Atmosphere, Sphaira, Ultrahand, sys-con, cowMMC guard) and reset default sysmodule boot toggles.\n\nSelect the -update.zip asset instead to preserve your settings.",
+      "post_install_message": "MooSwitch Full Pack staged.\n\nReboot your Switch immediately (Sphaira Power Menu or Ultrahand -> Reboot to Hekate / Nyx). Hekate will apply the update automatically on boot."
     }
   ]
 }
