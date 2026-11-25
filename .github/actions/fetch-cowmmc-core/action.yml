@@ -122,6 +122,7 @@ runs:
         sudo apt-get install -y --no-install-recommends \
           gcc-arm-none-eabi \
           binutils-arm-none-eabi \
+          libnewlib-arm-none-eabi \
           clang \
           lld
 
@@ -142,7 +143,10 @@ runs:
         SRC_DIR="${GITHUB_WORKSPACE}/.hos_cow_src"
         bash "${SRC_DIR}/tools/setup_switch_toolchain.sh"
         bash "${SRC_DIR}/tools/build_emummc_linux.sh"
-        bash "${SRC_DIR}/tools/build_hekate_linux.sh"
+        DEVKITPRO="${SRC_DIR}/.toolchain/devkitpro" \
+          DEVKITARM="${SRC_DIR}/.toolchain/devkitpro/devkitARM" \
+          PATH="${SRC_DIR}/.toolchain/devkitpro/devkitARM/bin:${PATH}" \
+          bash "${SRC_DIR}/tools/build_hekate_linux.sh"
 
         DEVKITPRO="${SRC_DIR}/.toolchain/devkitpro" \
           PATH="${SRC_DIR}/.toolchain/devkitpro/devkitA64/bin:${SRC_DIR}/.toolchain/devkitpro/tools/bin:${PATH}" \
