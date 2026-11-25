@@ -146,7 +146,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mooswitch-assets-
 
-      - name: Build & verify MooSwitch nightly archive
+      - name: Build & verify MooSwitch nightly archives
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.check-changes.outputs.tag }}
@@ -154,8 +154,11 @@ jobs:
           REASON: ${{ needs.check-changes.outputs.reason }}
         run: |
           python3 -B builder/build_pack.py --version "${TAG}" --cowmmc-core /tmp/cowmmc-core.tar.gz
-          python3 -B builder/verify_pack.py --sd-root dist/sd_root --zip "dist/mooswitch-${TAG}.zip"
-          (cd dist && sha256sum "mooswitch-${TAG}.zip" > "mooswitch-${TAG}.zip.sha256")
+          python3 -B builder/verify_pack.py \
+            --sd-root dist/sd_root \
+            --zip "dist/mooswitch-${TAG}.zip" \
+            --update-zip "dist/mooswitch-${TAG}-update.zip"
+          (cd dist && sha256sum "mooswitch-${TAG}.zip" "mooswitch-${TAG}-update.zip" > "SHA256SUMS.txt")
 
           python3 - << 'PYEOF' > /tmp/nightly_notes.md
           import json, os
@@ -163,7 +166,13 @@ jobs:
 
           tag = os.environ["TAG"]
           m = json.loads(Path("dist/sd_root/pack-manifest.json").read_text(encoding="utf-8"))
-          sha = Path(f"dist/mooswitch-{tag}.zip.sha256").read_text(encoding="utf-8").split()[0]
+          sums = dict(
+              (parts[1].lstrip("*"), parts[0])
+              for line in Path("dist/SHA256SUMS.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip() and len(parts := line.split(None, 1)) == 2
+          )
+          full_zip = f"mooswitch-{tag}.zip"
+          upd_zip = f"mooswitch-{tag}-update.zip"
           core = m.get("cowmmc_core", {})
 
           print(f"## MooSwitch `{tag}` (Nightly)")
@@ -173,7 +182,8 @@ jobs:
           print(f"- **cowmmc-core source:** `{os.environ.get('CORE_TAG', 'nightly')}` (`HOS_COW@{str(core.get('hos_cow_commit', ''))[:12]}`, `hekatomb@{str(core.get('hekate_commit', ''))[:12]}`, `AtmosphereCOW@{str(core.get('atmosphere_commit', ''))[:12]}`)")
           print(f"- **Supported HOS:** `{m['supported_hos']}`  |  **Atmosphere:** `{m['atmosphere_version']}`  |  **Hekate:** `{m['hekate_version']}`")
           print(f"- **Tracked SD files:** `{m['file_count']}`")
-          print(f"- **ZIP SHA-256:** `{sha}`")
+          print(f"- **Full Pack SHA-256** (`{full_zip}` — fresh install / `install_pack.py`): `{sums[full_zip]}`")
+          print(f"- **Update Pack SHA-256** (`{upd_zip}` — config-preserving upgrade): `{sums[upd_zip]}`")
           PYEOF
 
       - name: Publish nightly pre-release & prune older nightlies
@@ -183,7 +193,8 @@ jobs:
         run: |
           ASSETS=(
             "dist/mooswitch-${TAG}.zip"
-            "dist/mooswitch-${TAG}.zip.sha256"
+            "dist/mooswitch-${TAG}-update.zip"
+            "dist/SHA256SUMS.txt"
             "dist/sd_root/pack-manifest.json"
             "dist/lock-checksums.json"
           )

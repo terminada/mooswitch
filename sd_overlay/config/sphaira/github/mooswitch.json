@@ -1,0 +1,19 @@
+{
+  "name": "MooSwitch",
+  "url": "https://github.com/terminada/mooswitch",
+  "tag": "latest",
+  "assets": [
+    {
+      "name": "-update.zip",
+      "path": "/",
+      "pre_install_message": "Install MooSwitch Update Pack?\n\nUpdates CFW, patches, overlays, and homebrew while preserving your configs, sysmodule toggles, and cowMMC setup.\n\nIf updating Switch firmware, quarantine custom Home Menu themes first (Ultrahand -> MooSwitch Tools).",
+      "post_install_message": "MooSwitch Update Pack installed.\n\nReboot your Switch immediately (Sphaira Power Menu or Ultrahand -> Reboot to Hekate / Nyx) to apply the update."
+    },
+    {
+      "name": ".zip",
+      "path": "/",
+      "pre_install_message": "Install MooSwitch Full Pack?\n\nWARNING: Overwrites your configs (Hekate, Nyx, Atmosphere, Sphaira, Ultrahand, sys-con, cowMMC guard) and resets default sysmodule boot toggles.\n\nSelect the -update.zip asset instead to preserve your settings.",
+      "post_install_message": "MooSwitch Full Pack installed.\n\nReboot your Switch immediately (Sphaira Power Menu or Ultrahand -> Reboot to Hekate / Nyx) to apply the update."
+    }
+  ]
+}

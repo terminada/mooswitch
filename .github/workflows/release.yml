@@ -82,7 +82,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mooswitch-assets-
 
-      - name: Build & verify MooSwitch release archive
+      - name: Build & verify MooSwitch release archives
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.meta.outputs.version }}
@@ -90,15 +90,24 @@ jobs:
           CORE_TAG: ${{ steps.core.outputs.core_tag }}
         run: |
           python3 -B builder/build_pack.py --version "${VERSION}" --cowmmc-core /tmp/cowmmc-core.tar.gz
-          python3 -B builder/verify_pack.py --sd-root dist/sd_root --zip "dist/mooswitch-${VERSION}.zip"
-          (cd dist && sha256sum "mooswitch-${VERSION}.zip" > "mooswitch-${VERSION}.zip.sha256")
+          python3 -B builder/verify_pack.py \
+            --sd-root dist/sd_root \
+            --zip "dist/mooswitch-${VERSION}.zip" \
+            --update-zip "dist/mooswitch-${VERSION}-update.zip"
+          (cd dist && sha256sum "mooswitch-${VERSION}.zip" "mooswitch-${VERSION}-update.zip" > "SHA256SUMS.txt")
 
           python3 - << 'PYEOF' > /tmp/release_notes.md
           import json, os
           from pathlib import Path
 
           m = json.loads(Path("dist/sd_root/pack-manifest.json").read_text(encoding="utf-8"))
-          sha = Path(f"dist/mooswitch-{m['version']}.zip.sha256").read_text(encoding="utf-8").split()[0]
+          sums = dict(
+              (parts[1].lstrip("*"), parts[0])
+              for line in Path("dist/SHA256SUMS.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip() and len(parts := line.split(None, 1)) == 2
+          )
+          full_zip = f"mooswitch-{m['version']}.zip"
+          upd_zip = f"mooswitch-{m['version']}-update.zip"
           core = m.get("cowmmc_core", {})
 
           print(f"## MooSwitch {os.environ['TAG']}")
@@ -115,7 +124,8 @@ jobs:
               f"`AtmosphereCOW@{str(core.get('atmosphere_commit', ''))[:12]}`)"
           )
           print(f"- **Tracked SD files:** `{m['file_count']}`")
-          print(f"- **ZIP SHA-256:** `{sha}`")
+          print(f"- **Full Pack SHA-256** (`{full_zip}` — fresh install / `install_pack.py`): `{sums[full_zip]}`")
+          print(f"- **Update Pack SHA-256** (`{upd_zip}` — Sphaira `Menus -> GitHub` / config-preserving upgrade): `{sums[upd_zip]}`")
           print()
           print("<details>")
           print("<summary>Component Versions</summary>")
@@ -137,7 +147,8 @@ jobs:
         run: |
           ASSETS=(
             "dist/mooswitch-${VERSION}.zip"
-            "dist/mooswitch-${VERSION}.zip.sha256"
+            "dist/mooswitch-${VERSION}-update.zip"
+            "dist/SHA256SUMS.txt"
             "dist/sd_root/pack-manifest.json"
             "dist/lock-checksums.json"
           )

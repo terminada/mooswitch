@@ -35,6 +35,14 @@ PRESERVE_CONFIG_PATHS = frozenset({
     "bootloader/hekate_ipl.ini",
     "bootloader/nyx.ini",
     "atmosphere/config/system_settings.ini",
+    "atmosphere/config/override_config.ini",
+    "atmosphere/hosts/emummc.txt",
+    "exosphere.ini",
+    "config/sphaira/config.ini",
+    "config/ultrahand/config.ini",
+    "config/sys-con/config.ini",
+    "switch/JC-color-swapper/profiles.json",
+    "SaltySD/exceptions.txt",
 })
 
 SEED_ONLY_PATHS = frozenset({
@@ -107,7 +115,7 @@ def resolve_source(sd_root_arg: str | None, zip_arg: str | None) -> tuple[Path |
     default_sd = PACK_ROOT / "dist" / "sd_root"
     if default_sd.is_dir():
         return default_sd, None
-    zips = sorted((PACK_ROOT / "dist").glob("mooswitch-*.zip"))
+    zips = sorted(p for p in (PACK_ROOT / "dist").glob("mooswitch-*.zip") if not p.name.endswith("-update.zip"))
     if zips:
         return None, zips[-1]
     raise SystemExit("No pack source found; specify --sd-root or --zip")
@@ -192,6 +200,11 @@ def install_pack(
     with SourceReader(sd_root, zip_path) as src:
         manifest_bytes = src.read_bytes("pack-manifest.json")
         new_manifest = json.loads(manifest_bytes.decode("utf-8"))
+        if new_manifest.get("variant") == "update":
+            raise ValueError(
+                "install_pack.py requires the full mooswitch-<version>.zip (it already preserves configs and skips seeds); "
+                "*-update.zip is intended for direct SD / Sphaira extraction."
+            )
         entries = new_manifest["files"]
 
         # Pre-validate every payload from source before mutating target
@@ -259,7 +272,7 @@ def main() -> int:
     parser.add_argument(
         "--overwrite-configs",
         action="store_true",
-        help="Overwrite existing user-customized config files (guard.ini, hekate_ipl.ini, nyx.ini, system_settings.ini)",
+        help="Overwrite existing user-editable config files (Hekate, Nyx, Atmosphere, Exosphere, hosts, cowMMC, Sphaira, Ultrahand, sys-con, SaltySD)",
     )
     parser.add_argument(
         "--keep-themes",

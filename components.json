@@ -295,8 +295,8 @@
       "id": "sphaira",
       "name": "Sphaira (Homebrew Menu Replacement)",
       "kind": "github_release",
-      "repo": "ITotalJustice/sphaira",
-      "tag": "1.1.1",
+      "repo": "terminada/sphaira",
+      "tag": "1.1.2",
       "asset_glob": "sphaira.zip",
       "protected": false,
       "extract_mode": "replace_hbmenu",
@@ -346,6 +346,17 @@
       "protected": false,
       "extract_mode": "single_file",
       "dest_path": "switch/NXThemesInstaller/NXThemesInstaller.nro"
+    },
+    {
+      "id": "jc-color-swapper",
+      "name": "JC-color-swapper (Joy-Con Color Swapper, libnx 4.12+ GUI)",
+      "kind": "github_release",
+      "repo": "terminada/JC-color-swapper",
+      "tag": "v2.0.0",
+      "asset_glob": "JC-color-swapper-v*.zip",
+      "protected": false,
+      "extract_mode": "zip_tree",
+      "exclude_paths": []
     }
   ]
 }

@@ -22,6 +22,7 @@ if str(BUILDER_DIR) not in sys.path:
     sys.path.insert(0, str(BUILDER_DIR))
 
 from abi_check import verify_sd_abi_and_compatibility  # noqa: E402
+from build_pack import UPDATE_PACK_EXCLUDED_PATHS, is_excluded_from_update_pack  # noqa: E402
 from install_pack import install_pack  # noqa: E402
 
 
@@ -212,6 +213,7 @@ def verify_binary_magics(sd_root: Path) -> None:
         "switch/linkalho/linkalho.nro",
         "switch/Switch_90DNS_tester/Switch_90DNS_tester.nro",
         "switch/NXThemesInstaller/NXThemesInstaller.nro",
+        "switch/JC-color-swapper/JC-color-swapper.nro",
     )
     for rel in nros:
         _assert_nro0(sd_root / rel, rel)
@@ -280,12 +282,45 @@ def verify_configs_and_packages(sd_root: Path) -> None:
         "bootloader/nyx.ini must use Hekate/Nyx default theme values (themebg=2d2d2d, themecolor=167)"
     )
 
+    jc_profiles_p = sd_root / "switch/JC-color-swapper/profiles.json"
+    assert jc_profiles_p.is_file() and jc_profiles_p.stat().st_size > 0, (
+        "Missing or empty JC-color-swapper profiles.json"
+    )
+    jc_profiles = json.loads(jc_profiles_p.read_text(encoding="utf-8"))
+    assert isinstance(jc_profiles, list) and len(jc_profiles) > 0, (
+        "switch/JC-color-swapper/profiles.json must be a non-empty JSON list"
+    )
+
     autoinit_p = sd_root / "emuMMC/COW0/cow_autoinit"
     assert autoinit_p.is_file(), "Missing first-boot seed emuMMC/COW0/cow_autoinit"
     auto_txt = autoinit_p.read_text(encoding="utf-8")
     for kv in ("version=2", "thin=1", "size_mb=auto", "max_size_mb=auto", "sd_reserve_mb=512"):
         assert kv in auto_txt, f"emuMMC/COW0/cow_autoinit missing {kv!r}"
     assert not (sd_root / "emuMMC/emummc.ini").exists(), "Pack must never ship emuMMC/emummc.ini"
+
+    gh_json_path = sd_root / "config/sphaira/github/mooswitch.json"
+    assert gh_json_path.is_file(), "Missing Sphaira GitHub updater config config/sphaira/github/mooswitch.json"
+    gh_cfg = json.loads(gh_json_path.read_text(encoding="utf-8"))
+    assert gh_cfg.get("name") == "MooSwitch", f"Unexpected Sphaira GitHub entry name: {gh_cfg.get('name')!r}"
+    assert gh_cfg.get("url") == "https://github.com/terminada/mooswitch", f"Unexpected Sphaira GitHub URL: {gh_cfg.get('url')!r}"
+    assert gh_cfg.get("tag") == "latest", f"Sphaira GitHub updater must track stable releases ('latest'), got {gh_cfg.get('tag')!r}"
+    assets = gh_cfg.get("assets", [])
+    assert len(assets) == 2, f"Expected 2 asset filters in mooswitch.json, found {len(assets)}"
+    assert assets[0].get("name") == "-update.zip" and assets[0].get("path") == "/"
+    assert assets[1].get("name") == ".zip" and assets[1].get("path") == "/"
+    for idx, asset in enumerate(assets):
+        assert asset.get("pre_install_message", "").strip(), f"mooswitch.json assets[{idx}] missing pre_install_message"
+        assert asset.get("post_install_message", "").strip(), f"mooswitch.json assets[{idx}] missing post_install_message"
+
+    # Simulate Sphaira ghdl.cpp substring asset filter order (`find` + first-match break)
+    def _match_sphaira_asset(fname: str) -> str | None:
+        matched = next((a for a in assets if a["name"] in fname), None)
+        return matched["name"] if matched else None
+
+    assert _match_sphaira_asset("mooswitch-2026.11.22-update.zip") == "-update.zip"
+    assert _match_sphaira_asset("mooswitch-2026.11.22.zip") == ".zip"
+    for non_zip in ("SHA256SUMS.txt", "pack-manifest.json", "lock-checksums.json"):
+        assert _match_sphaira_asset(non_zip) is None, f"{non_zip} must not match Sphaira GitHub asset filters"
 
 
 def verify_install_pack_self_test(sd_root: Path, zip_path: Path | None) -> None:
@@ -407,14 +442,78 @@ def verify_manifest_and_zip(sd_root: Path, zip_path: Path | None) -> int:
     return len(recorded)
 
 
+def verify_update_zip(sd_root: Path, update_zip_path: Path) -> tuple[int, int]:
+    assert update_zip_path.is_file(), f"Missing Update ZIP archive: {update_zip_path}"
+    manifest_path = sd_root / "pack-manifest.json"
+    disk_files = {
+        p.relative_to(sd_root).as_posix()
+        for p in sd_root.rglob("*")
+        if p.is_file() and p != manifest_path
+    }
+    expected_included = {p for p in disk_files if not is_excluded_from_update_pack(p)}
+    expected_excluded = disk_files - expected_included
+
+    missing_excl = sorted(UPDATE_PACK_EXCLUDED_PATHS - expected_excluded)
+    assert not missing_excl, f"UPDATE_PACK_EXCLUDED_PATHS missing from sd_root: {missing_excl}"
+    assert any(p.endswith("/flags/boot2.flag") and p.startswith("atmosphere/contents/") for p in expected_excluded), (
+        "Expected at least one sysmodule boot2.flag to be excluded from update ZIP"
+    )
+
+    with zipfile.ZipFile(update_zip_path, "r") as zf:
+        bad = zf.testzip()
+        assert bad is None, f"Corrupt member in Update ZIP archive: {bad}"
+        zip_members = set(zf.namelist())
+        expected_members = expected_included | {"pack-manifest.json"}
+        assert zip_members == expected_members, (
+            f"Update ZIP mismatch: extra={sorted(zip_members - expected_members)}, "
+            f"missing={sorted(expected_members - zip_members)}"
+        )
+        for rel in expected_included:
+            assert zf.read(rel) == (sd_root / rel).read_bytes(), f"Update ZIP payload mismatch for {rel}"
+
+        update_manifest = json.loads(zf.read("pack-manifest.json").decode("utf-8"))
+        assert update_manifest.get("variant") == "update", (
+            f"Update ZIP manifest variant must be 'update', got {update_manifest.get('variant')!r}"
+        )
+        assert update_manifest.get("file_count") == len(expected_included), (
+            f"Update manifest file_count {update_manifest.get('file_count')} != {len(expected_included)}"
+        )
+        assert set(update_manifest.get("excluded_paths", [])) == expected_excluded, (
+            "Update manifest excluded_paths mismatch"
+        )
+
+        recorded: dict[str, dict] = {}
+        for entry in update_manifest.get("files", []):
+            rel = entry["path"]
+            assert rel not in recorded, f"Duplicate path in update pack-manifest.json: {rel}"
+            assert rel in expected_included, f"Unexpected path in update pack-manifest.json: {rel}"
+            data = (sd_root / rel).read_bytes()
+            assert len(data) == entry["size"], f"Size mismatch in update manifest for {rel}"
+            assert sha256_bytes(data) == entry["sha256"], f"SHA-256 mismatch in update manifest for {rel}"
+            recorded[rel] = entry
+        assert set(recorded) == expected_included
+
+    with tempfile.TemporaryDirectory(prefix="mooswitch_update_guard_test_") as tmp:
+        try:
+            install_pack(Path(tmp), sd_root=None, zip_path=update_zip_path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("install_pack() must reject *-update.zip archives")
+
+    return len(expected_included), len(expected_excluded)
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Verify staged MooSwitch (mooswitch) SD tree and release ZIP")
+    parser = argparse.ArgumentParser(description="Verify staged MooSwitch (mooswitch) SD tree and release ZIPs")
     parser.add_argument("--sd-root", required=True)
     parser.add_argument("--zip", default=None)
+    parser.add_argument("--update-zip", default=None)
     args = parser.parse_args()
 
     sd_root = Path(args.sd_root).resolve()
     zip_path = Path(args.zip).resolve() if args.zip else None
+    update_zip_path = Path(args.update_zip).resolve() if args.update_zip else None
 
     print("=== MooSwitch Distribution Verifier ===")
     verify_bmp32(sd_root / "bootloader/bootlogo.bmp", 720, 1280, require_opaque=True, require_grayscale=True)
@@ -435,7 +534,7 @@ def main() -> int:
     print(f"  [PASS] Sphaira hbmenu replacement verified (NACP={hb_title!r}, SHA-256 == switch/sphaira/sphaira.nro)")
 
     verify_binary_magics(sd_root)
-    print("  [PASS] Bootloader parity, Horizon-OC/SaltyNX, sysmodules, 12 overlays, 10 NROs, 6 payloads, and Daybreak exclusion verified")
+    print("  [PASS] Bootloader parity, Horizon-OC/SaltyNX, sysmodules, 12 overlays, 11 NROs, 6 payloads, and Daybreak exclusion verified")
 
     abi = verify_sd_abi_and_compatibility(sd_root)
     print(
@@ -455,6 +554,14 @@ def main() -> int:
 
     verify_install_pack_self_test(sd_root, zip_path)
     print("  [PASS] install_pack.py self-test (user data + config preservation + theme quarantine + cleanup) verified")
+
+    if update_zip_path is not None:
+        upd_count, excl_count = verify_update_zip(sd_root, update_zip_path)
+        print(
+            f"  [PASS] Update ZIP verified ({upd_count} files, {excl_count} user config/flag/seed paths excluded, "
+            "install_pack guard verified)"
+        )
+
     print("\nALL MOOSWITCH VERIFICATION CHECKS PASSED.")
     return 0
 

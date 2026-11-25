@@ -30,6 +30,72 @@ if str(PACK_ROOT) not in sys.path:
 
 from branding.generate_branding import generate_branding  # noqa: E402
 
+UPDATE_PACK_EXCLUDED_PATHS = frozenset({
+    "bootloader/hekate_ipl.ini",
+    "bootloader/nyx.ini",
+    "atmosphere/config/system_settings.ini",
+    "atmosphere/config/override_config.ini",
+    "atmosphere/hosts/emummc.txt",
+    "exosphere.ini",
+    "config/cowmmc/guard.ini",
+    "config/sphaira/config.ini",
+    "config/ultrahand/config.ini",
+    "config/sys-con/config.ini",
+    "switch/JC-color-swapper/profiles.json",
+    "SaltySD/exceptions.txt",
+    "emuMMC/COW0/cow_autoinit",
+})
+
+UPDATE_PACK_EXCLUDED_GLOBS = (
+    "atmosphere/contents/*/flags/boot2.flag",
+)
+
+
+def is_excluded_from_update_pack(rel_path: str) -> bool:
+    rel = safe_rel_posix(rel_path)
+    if rel in UPDATE_PACK_EXCLUDED_PATHS:
+        return True
+    return any(fnmatch.fnmatch(rel, pat) for pat in UPDATE_PACK_EXCLUDED_GLOBS)
+
+
+def _write_sd_zip(
+    zip_path: Path,
+    sd_dir: Path,
+    exclude_fn=None,
+    manifest_override: dict | None = None,
+) -> None:
+    """Write a deterministic DEFLATED ZIP archive from sd_dir atomically."""
+    zip_tmp = zip_path.with_name(f"{zip_path.name}.tmp.{os.getpid()}")
+    fixed_dt = (2026, 1, 1, 0, 0, 0)
+
+    def _add_entry(zf: zipfile.ZipFile, rel: str, payload: bytes) -> None:
+        zi = zipfile.ZipInfo(rel, date_time=fixed_dt)
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zi.external_attr = 0o644 << 16
+        zf.writestr(zi, payload)
+
+    try:
+        with zipfile.ZipFile(zip_tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for p in sorted(sd_dir.rglob("*")):
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(sd_dir).as_posix()
+                if manifest_override is not None and rel == "pack-manifest.json":
+                    continue
+                if exclude_fn is not None and exclude_fn(rel):
+                    continue
+                _add_entry(zf, rel, p.read_bytes())
+            if manifest_override is not None:
+                _add_entry(
+                    zf,
+                    "pack-manifest.json",
+                    (json.dumps(manifest_override, indent=2) + "\n").encode("utf-8"),
+                )
+        zip_tmp.replace(zip_path)
+    finally:
+        if zip_tmp.exists():
+            zip_tmp.unlink()
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -459,6 +525,7 @@ def main() -> int:
         files_list = sorted(owners.values(), key=lambda x: x["path"])
         pack_manifest = {
             "format": "mooswitch-manifest-v1",
+            "variant": "full",
             "pack_name": pack_cfg["pack_name"],
             "brand_title": pack_cfg["brand_title"],
             "version": pack_cfg["version"],
@@ -489,23 +556,35 @@ def main() -> int:
             shutil.rmtree(sd_final)
         sd_stage.rename(sd_final)
 
-        # Build distributable ZIP from sd_root
+        # Build distributable Full ZIP and config-preserving Update ZIP from sd_root
         zip_name = f"{pack_cfg['pack_name']}-{pack_cfg['version']}.zip"
         zip_path = out_dir / zip_name
-        zip_tmp = out_dir / f"{zip_name}.tmp.{os.getpid()}"
-        fixed_dt = (2026, 1, 1, 0, 0, 0)
-        with zipfile.ZipFile(zip_tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-            for p in sorted(sd_final.rglob("*")):
-                if not p.is_file():
-                    continue
-                rel = p.relative_to(sd_final).as_posix()
-                zi = zipfile.ZipInfo(rel, date_time=fixed_dt)
-                zi.compress_type = zipfile.ZIP_DEFLATED
-                zi.external_attr = 0o644 << 16
-                zf.writestr(zi, p.read_bytes())
-        zip_tmp.replace(zip_path)
+        _write_sd_zip(zip_path, sd_final)
+
+        update_files_list = [entry for entry in files_list if not is_excluded_from_update_pack(entry["path"])]
+        excluded_paths = sorted(entry["path"] for entry in files_list if is_excluded_from_update_pack(entry["path"]))
+        update_manifest = dict(pack_manifest)
+        update_manifest.update({
+            "variant": "update",
+            "file_count": len(update_files_list),
+            "excluded_count": len(excluded_paths),
+            "excluded_paths": excluded_paths,
+            "files": update_files_list,
+        })
+        update_zip_name = f"{pack_cfg['pack_name']}-{pack_cfg['version']}-update.zip"
+        update_zip_path = out_dir / update_zip_name
+        _write_sd_zip(
+            update_zip_path,
+            sd_final,
+            exclude_fn=is_excluded_from_update_pack,
+            manifest_override=update_manifest,
+        )
 
         print(f"[+] Built {zip_path} ({zip_path.stat().st_size / (1024 * 1024):.2f} MiB, {len(files_list)} tracked files)")
+        print(
+            f"[+] Built {update_zip_path} ({update_zip_path.stat().st_size / (1024 * 1024):.2f} MiB, "
+            f"{len(update_files_list)} tracked files, {len(excluded_paths)} user config/flag/seed paths excluded)"
+        )
         return 0
     finally:
         if sd_stage.exists():

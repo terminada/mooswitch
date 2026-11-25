@@ -66,6 +66,21 @@ jobs:
           assert "themebg=2d2d2d" in nyx and "themecolor=167" in nyx
           sphaira = Path("sd_overlay/config/sphaira/config.ini").read_text(encoding="utf-8")
           assert not any(l.strip().startswith("theme=") for l in sphaira.splitlines())
+
+          gh_upd = json.loads(Path("sd_overlay/config/sphaira/github/mooswitch.json").read_text(encoding="utf-8"))
+          assert gh_upd.get("name") == "MooSwitch"
+          assert gh_upd.get("url") == "https://github.com/terminada/mooswitch"
+          assert gh_upd.get("tag") == "latest"
+          gh_assets = gh_upd.get("assets", [])
+          assert [a.get("name") for a in gh_assets] == ["-update.zip", ".zip"]
+          assert all(a.get("path") == "/" for a in gh_assets)
+          assert all(a.get("pre_install_message", "").strip() and a.get("post_install_message", "").strip() for a in gh_assets)
+          def _match_asset(fname):
+              return next((a["name"] for a in gh_assets if a["name"] in fname), None)
+          assert _match_asset("mooswitch-2026.11.22-update.zip") == "-update.zip"
+          assert _match_asset("mooswitch-2026.11.22.zip") == ".zip"
+          for other in ("SHA256SUMS.txt", "pack-manifest.json", "lock-checksums.json"):
+              assert _match_asset(other) is None
           PYEOF
 
           rm -rf /tmp/branding_check
